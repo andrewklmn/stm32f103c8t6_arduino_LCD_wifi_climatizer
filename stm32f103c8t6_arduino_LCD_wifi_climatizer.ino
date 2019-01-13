@@ -6,8 +6,6 @@
 #include "LCD.h"
 #include "LiquidCrystal_I2C.h"
 
-
-
 // for DHT11, 
 //      VCC: 5V or 3V
 //      GND: GND
