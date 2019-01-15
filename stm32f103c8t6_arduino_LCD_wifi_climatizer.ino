@@ -5,16 +5,18 @@
 #include <SimpleDHT.h>
 #include "LCD.h"
 #include "LiquidCrystal_I2C.h"
+#include "Value_stack.h"
 
 // for DHT11, 
 //      VCC: 5V or 3V
 //      GND: GND
 //      DATA: 2
 
-int pinDHT11 = 2;                        // PA_2 as HDT11 sensor
+int pinDHT11 = 2;                        // PA_2 as HDT11 sensor for TEMP and Humidity
 SimpleDHT11 dht11(pinDHT11);     
-#define MQ135_ANALOG_PIN        0        // PA_0 as MQ-125 analog sensor
+#define MQ135_ANALOG_PIN        0        // PA_0 as MQ-125 analog sensor for CO2
 
+Value_stack CO2_PPM_stack;                
 
 int heater = 0;
 int water = 0;
@@ -22,24 +24,33 @@ int water = 0;
 byte temperature = 0;
 byte target_temp = 20;
 byte comfort_temp = 18;
+
 byte humidity = 0;
 byte target_humidity = 40;
+
+int pass_adc_reading_cycles = 20;
 
 int err = SimpleDHTErrSuccess;
 
 LiquidCrystal_I2C  screen1(0x3F,2,1,0,4,5,6,7); // 0x27 is the I2C bus address for an unmodified backpack
 
-int MQ135_ao_from_adc_to_ppm(int adc_value) {
+int MQ135_ao_from_adc_to_ppm(int adc_value, int temp_value) {
     
     float MQ135_SCALINGFACTOR = 116;
-    float MQ135_EXPONENT = -2.36;
-    float Up = 5.1;
+    float MQ135_EXPONENT = -2.739;
+    float Up = 5.0;
+    float Uadc = 3.3;
     int ADC_steps = 4096;
     int R2 = 1000;
-    
-    float Ud = (float)Up/ADC_steps * adc_value;
-    float resvalue = Up/Ud*R2-R2;  // Rs MQ135 now
     float ro = 41763;              // Ro MQ135
+
+    if (temp_value < 8 ) temp_value=8;
+    //if (temp_value > 20 ) temp_value=20;
+    
+    int temp_correction = (temp_value-20)*3.5; 
+    
+    float Ud = (float)Uadc/ADC_steps * (adc_value - temp_correction);
+    float resvalue = Up/Ud*R2-R2;  // Rs MQ135 now
     return round((float)MQ135_SCALINGFACTOR * pow( ((float)resvalue/ro), MQ135_EXPONENT));
 };
 
@@ -56,7 +67,8 @@ void setup() {
     screen1.home (); // set cursor to 0,0
     screen1.print("Temp:----   Hum:----");
     screen1.setCursor(0,1);
-    screen1.print(" CO2 level: ---");
+    screen1.print(" CO2 level: wait...");
+    //screen1.print(" CO2: ---");
     screen1.setCursor(0,2);
     screen1.print(" System is starting ");
     screen1.setCursor(0,3);
@@ -142,19 +154,25 @@ void loop() {
 
         delay(750);
 
-        int sensorValue = MQ135_ao_from_adc_to_ppm((int)analogRead(MQ135_ANALOG_PIN)); 
-        
+        int analog_value = (int)analogRead(MQ135_ANALOG_PIN);
+        CO2_PPM_stack.add_value(MQ135_ao_from_adc_to_ppm(analog_value, temperature));
+        int sensorValue = CO2_PPM_stack.get_average();
 
-        screen1.setCursor(12,1);        
-        if (sensorValue > 999) {
-          screen1.print(sensorValue);
-          screen1.print("ppm"); 
-          if (sensorValue > 1100) {         
-            screen1.setCursor(0,2);
-            screen1.print(" Need ventilation! ");
+        if (pass_adc_reading_cycles == 0) {
+
+          screen1.setCursor(12,1);        
+          if (sensorValue > 999) {
+            screen1.print(sensorValue);
+            screen1.print("ppm "); 
+            //if (sensorValue > 1000) {         
+              screen1.setCursor(0,2);
+              screen1.print("  Need ventilation! ");
+            //};
+          } else {
+            screen1.print(sensorValue);
+            screen1.print("ppm  ");          
           };
         } else {
-          screen1.print(sensorValue);
-          screen1.print("ppm ");          
+          pass_adc_reading_cycles--;  
         };
 }
